@@ -91,30 +91,39 @@ CLASS TMySql
          ::hConnection = mysql_real_connect( ::pLib,::cHost, ::cUser, IF(::cPsw # NIL,::cPsw, AP_GETENV( 'PASSWORD' )), ::cSchema, ::nPort, ::hMySQL )
          
          if ::hConnection != ::hMySQL
+            nArq := FCreate("c:\xampp\htdocs\MySql.log")
+            FWrite( nArq, "Error on connection to server " + ::cHost )
+            FClose( nArq )
             //? "Error on connection to server " + ::cHost,::hConnection , ::hMySQL
             RETURN NIL
          endif
       endif 
-
+      
       FOR nCount:=1 TO Len(aSQL)
          IF aParam # NIL .AND. Len(aParam[nCount]) > 0        
-            FOR nCountCol:=1 TO Len(aParam[nCount])
-               mysql_real_escape_string_quote(::pLib,::hConnection,@aParam[nCount,nCountCol])
-               aSQl[nCount]:=StrTran(aSQL[nCount],"PARAM"+StrZero(nCountCol,2),IF(Type(aParam[nCount,nCountCol]) # "C",IF(Type(aParam[nCount,nCountCol]) = "D", Dtoc(aParam[nCount,nCountCol]),hb_ValToStr(aParam[nCount,nCountCol])),aParam[nCount,nCountCol]))
+            FOR nCountCol:=1 TO Len(aParam[nCount])                                          
+               wparam:=NIL 
+               wparam:=IF(ValType(aParam[nCount,nCountCol]) # "C",IF(ValType(aParam[nCount,nCountCol]) = "D", Dtoc(aParam[nCount,nCountCol]),hb_ValToStr(aParam[nCount,nCountCol])),aParam[nCount,nCountCol])
+               mysql_real_escape_string_quote(::pLib,::hConnection,@wparam)
+               
+               aSQl[nCount]:=StrTran(aSQL[nCount],"PARAM"+StrZero(nCountCol,2),wparam)
+         
             NEXT nCountCol
-         ENDIF
+         ENDIF                     
          mysql_real_query( ::pLib,  ::hConnection, aSQL[nCount] )     
       NEXT nCount
       
       if mysql_error( ::hMySQL ) # NIL         
-         nArq := FCreate("MySql.log")
+         nArq := FCreate("c:\xampp\htdocs\MySql.log")
          FWrite( nArq, mysql_error( ::hMySQL ) )
          FClose( nArq )
       endif 
 
       mysql_close(::pLib,::hConnection)
    else
-      //? ::cLibName + " not available"     
+      nArq := FCreate("c:\xampp\htdocs\MySql.log")
+            FWrite( nArq, "Error on connection to server " + ::cHost )
+            FClose( nArq )
       RETURN NIL
    endif   
 
@@ -138,8 +147,10 @@ CLASS TMySql
 
       IF .NOT. Empty(aParam)
          FOR nCount:=1 TO Len(aParam) 
+            wparam:=NIL
+            wparam:=IF(ValType(aParam[nCount]) # "C",IF(ValType(aParam[nCount]) = "D", Dtoc(aParam[nCount]),hb_ValToStr(aParam[nCount])),aParam[nCount])
             mysql_real_escape_string_quote(::pLib,::hConnection,@aParam[nCount])
-            cSQL:=StrTran(cSQL,"PARAM"+StrZero(nCount,2),IF(Type(aParam[nCount]) # "C",IF(Type(aParam[nCount]) = "D", Dtoc(aParam[nCount]),hb_ValToStr(aParam[nCount])),aParam[nCount]))
+            cSQL:=StrTran(cSQL,"PARAM"+StrZero(nCount,2),wparam)
          NEXT nCount
       ENDIF
 
