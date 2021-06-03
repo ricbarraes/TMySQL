@@ -43,9 +43,10 @@ CLASS TMySql
  
    METHOD New( cSgbd, cHost, cUser, cPsw, cSchema, nPort ) 
    METHOD Query( cSQL ) 
+   METHOD QueryJson( cSQL )
    METHOD Escape(cParam)
    METHOD Exec(cSQL)
-   METHOD JsonToTable(hJson)
+   METHOD JsonToTable(hJson)   
 
  
  ENDCLASS
@@ -92,10 +93,10 @@ CLASS TMySql
          
          if ::hConnection != ::hMySQL
             nArq := FCreate("c:\xampp\htdocs\MySql.log")
-            FWrite( nArq, "Error on connection to server " + ::cHost )
+            FWrite( nArq, "E01-Error on connection to server " + ::cHost )
             FClose( nArq )
             //? "Error on connection to server " + ::cHost,::hConnection , ::hMySQL
-            RETURN NIL
+            RETURN -3
          endif
       endif 
       
@@ -110,24 +111,28 @@ CLASS TMySql
          
             NEXT nCountCol
          ENDIF                     
-         mysql_real_query( ::pLib,  ::hConnection, aSQL[nCount] )     
+
+         mysql_real_query( ::pLib,  ::hConnection, aSQL[nCount] )   
+         
+         if mysql_error( ::hMySQL ) # NIL         
+            nArq := FCreate("c:\xampp\htdocs\MySql.log")
+            FWrite( nArq, mysql_error( ::hMySQL ) +" /// QUERY:"+aSQL[nCount] )
+            FClose( nArq )
+            mysql_close(::pLib,::hConnection)
+            RETURN -1
+         endif 
+         
       NEXT nCount
       
-      if mysql_error( ::hMySQL ) # NIL         
-         nArq := FCreate("c:\xampp\htdocs\MySql.log")
-         FWrite( nArq, mysql_error( ::hMySQL ) )
-         FClose( nArq )
-      endif 
-
       mysql_close(::pLib,::hConnection)
    else
       nArq := FCreate("c:\xampp\htdocs\MySql.log")
-            FWrite( nArq, "Error on connection to server " + ::cHost )
+            FWrite( nArq, "E02-Error on connection to server " + ::cHost )
             FClose( nArq )
-      RETURN NIL
+      RETURN -2
    endif   
 
- RETURN NIL
+ RETURN 0
 
  METHOD Query(cSQL, aParam)
    
@@ -140,7 +145,10 @@ CLASS TMySql
          ::hConnection = mysql_real_connect( ::pLib,::cHost, ::cUser,IF(::cPsw # NIL,::cPsw, AP_GETENV( 'PASSWORD' )), ::cSchema, ::nPort, ::hMySQL )
          
          if ::hConnection != ::hMySQL
-            ? "Error on connection to server " + ::cHost,::cSchema,::cUser,::hConnection , ::hMySQL, ::cLibName, mysql_error(::pLib,::hMySQL)
+            nArq := FCreate("c:\xampp\htdocs\MySql.log")
+            FWrite( nArq, "Q01-Error on connection to server " + ::cHost )
+            FClose( nArq )
+            //? "Error on connection to server " + ::cHost,::cSchema,::cUser,::hConnection , ::hMySQL, ::cLibName, mysql_error(::pLib,::hMySQL)
             RETURN NIL
          endif
       endif 
@@ -162,11 +170,71 @@ CLASS TMySql
          oTable = MySqlTable():New(Self)
       endif 
 
+      if mysql_error( ::hMySQL ) # NIL         
+         nArq := FCreate("c:\xampp\htdocs\MySql.log")
+         FWrite( nArq, mysql_error( ::hMySQL )+"///"+cSQL )
+         FClose( nArq )
+      endif 
+
       mysql_close(::pLib,::hConnection)
    else
-      ? ::cLibName + " not available"     
+      nArq := FCreate("c:\xampp\htdocs\MySql.log")
+      FWrite( nArq, "Q02-"+::cLibName + " not available"      )
+      FClose( nArq )      
       RETURN NIL
    endif   
+ RETURN oTable 
+
+ METHOD QueryJson(cSQL, aParam)
+   
+   LOCAL oTable,nCount
+
+   if ! Empty( ::pLib )
+      ::hMySQL = mysql_init(::pLib)        
+      
+      if ::hMySQL != 0
+         ::hConnection = mysql_real_connect( ::pLib,::cHost, ::cUser,IF(::cPsw # NIL,::cPsw, AP_GETENV( 'PASSWORD' )), ::cSchema, ::nPort, ::hMySQL )
+         
+         if ::hConnection != ::hMySQL
+            nArq := FCreate("c:\xampp\htdocs\MySql.log")
+            FWrite( nArq, "Q01-Error on connection to server " + ::cHost )
+            FClose( nArq )
+            //? "Error on connection to server " + ::cHost,::cSchema,::cUser,::hConnection , ::hMySQL, ::cLibName, mysql_error(::pLib,::hMySQL)
+            RETURN NIL
+         endif
+      endif 
+
+      IF .NOT. Empty(aParam)
+         FOR nCount:=1 TO Len(aParam) 
+            wparam:=NIL
+            wparam:=IF(ValType(aParam[nCount]) # "C",IF(ValType(aParam[nCount]) = "D", Dtoc(aParam[nCount]),hb_ValToStr(aParam[nCount])),aParam[nCount])
+            mysql_real_escape_string_quote(::pLib,::hConnection,@aParam[nCount])
+            cSQL:=StrTran(cSQL,"PARAM"+StrZero(nCount,2),wparam)
+         NEXT nCount
+      ENDIF
+
+      ::nRetVal := mysql_real_query( ::pLib, ::hConnection, cSQL )     
+
+      if ::nRetVal != 0
+         oTable:=NIL
+      else
+         oTable = MySqlTable():New(Self,,.T.)
+      endif 
+
+      if mysql_error( ::hMySQL ) # NIL         
+         nArq := FCreate("c:\xampp\htdocs\MySql.log")
+         FWrite( nArq, mysql_error( ::hMySQL )+"///"+cSQL )
+         FClose( nArq )
+      endif 
+
+      mysql_close(::pLib,::hConnection)
+   else
+      nArq := FCreate("c:\xampp\htdocs\MySql.log")
+      FWrite( nArq, "Q02-"+::cLibName + " not available"      )
+      FClose( nArq )      
+      RETURN NIL
+   endif   
+
  RETURN oTable 
 
  METHOD JsonToTable(hJson)
@@ -270,6 +338,8 @@ CLASS TMySql
 
     METHOD MultiSeek(acField,aValue)
 
+    METHOD SetOrder(acField)
+
     METHOD GoTo(nPos)   INLINE ::nRow := IF(::Count()<nPos,1,nPos)
     METHOD Next()   INLINE ::nRow++   
     METHOD Prev()   INLINE If( ::nRow > 1, ::nRow--,)   
@@ -334,10 +404,43 @@ RETURN nCount
    ENDIF
  RETURN nPos
 
- METHOD New( oOrm, hJson ) CLASS MySQLTable
- 
-    local n, m, hField, hRow
+ METHOD SetOrder(acField, aAsc)
+   LOCAL cCond:="{| x, y | ", nIt:=1, cVar, nPos:=0, nVal:=0
+   
+   FOR EACH cVar IN acField
+      
+      IF nIt > 1
+         cCond+=" .AND. "
+      ENDIF
 
+      nVal:=::FieldPos( cVar )
+      
+      IF(nVal=0)
+         RETURN nPos 
+      ENDIF
+
+      IF aAsc = NIL .OR. Len(aAsc) <= 0
+         cCond += ("x["+StrZero(nVal,2)+"] < y["+StrZero(nVal,2)+"]")
+      ELSE
+         IF nVal > Len(aAsc)
+            cCond += ("x["+StrZero(nVal,2)+"] < y["+StrZero(nVal,2)+"]")
+         ELSEIF aAsc[nIt] 
+            cCond += ("x["+StrZero(nVal,2)+"] < y["+StrZero(nVal,2)+"]")
+         ELSE 
+            cCond += ("x["+StrZero(nVal,2)+"] > y["+StrZero(nVal,2)+"]")
+         ENDIF 
+      ENDIF
+      nIt++
+   NEXT 
+   cCond+="}"
+
+   ::aRows := ASort(::aRows,,,&(cCond))
+
+ RETURN NIL
+
+ METHOD New( oOrm, hJson, lJson ) CLASS MySQLTable
+ 
+    local n, m, hField, hRow, aFldCnv, aRowCnv, hRetJson:={=>}, aJson:={}
     ::Super:New( oOrm)
 
     IF hJson = NIL
@@ -347,38 +450,75 @@ RETURN nCount
       if ::hMyRes == 0
          ? "mysql_store_results() failed"
       else
-         ::aFields = Array( mysql_num_fields( oOrm:pLib, ::hMyRes ) )
+
+         IF lJson # NIL .AND. lJson
+      
+            aFldCnv := Array( mysql_num_fields( oOrm:pLib, ::hMyRes ) )
+            aRowCnv := Array( mysql_num_rows( oOrm:pLib, ::hMyRes ), Len( aFldCnv ) )
+                        
+            for n = 1 to Len( aRowCnv )
+               if ( hRow := mysql_fetch_row( oOrm:pLib, ::hMyRes ) ) != 0
+
+                  hRetJson:={=>}
+                  
+                  for m = 1 to Len( aFldCnv )
+                     
+                     hField = mysql_fetch_field( oOrm:pLib, ::hMyRes )
+                     IF hField != 0
+                        aFldCnv[ m ] = Array( 4 )
+                        aFldCnv[ m ][ 1 ] := PtrToStr( hField, 0 )
+                        hRetJson[PtrToStr( hField, 0 )]:=PtrToStr( hRow, m - 1 )
+                     ELSE 
+                        hRetJson[aFldCnv[m,1]]:=PtrToStr( hRow, m - 1 )
+                     ENDIF 
+                     
+                     
+                     
+                  next m
+                  
+                  AAdd(aJson,hRetJson)
+               endif
+            next n
          
-         for n = 1 to Len( ::aFields )
-            hField = mysql_fetch_field( oOrm:pLib, ::hMyRes )
-            if hField != 0
-               ::aFields[ n ] = Array( 4 )
-               ::aFields[ n ][ 1 ] = PtrToStr( hField, 0 )
-               do case
-                  case AScan( { 253, 254, 12 }, PtrToUI( hField, hb_SysMyTypePos() ) ) != 0
-                        ::aFields[ n ][ 2 ] = "C"
-   
-                  case AScan( { 1, 3, 4, 5, 8, 9, 246 }, PtrToUI( hField, hb_SysMyTypePos() ) ) != 0
-                        ::aFields[ n ][ 2 ] = "N"
-   
-                  case AScan( { 10 }, PtrToUI( hField, hb_SysMyTypePos() ) ) != 0
-                        ::aFields[ n ][ 2 ] = "D"
-   
-                  case AScan( { 250, 252 }, PtrToUI( hField, hb_SysMyTypePos() ) ) != 0
-                        ::aFields[ n ][ 2 ] = "M"
-               endcase 
-            endif   
-         next   
-   
-         ::aRows = Array( mysql_num_rows( oOrm:pLib, ::hMyRes ), ::FCount() )
-   
-         for n = 1 to Len( ::aRows )
-            if ( hRow := mysql_fetch_row( oOrm:pLib, ::hMyRes ) ) != 0
-               for m = 1 to ::FCount()
-                  ::aRows[ n, m ] = PtrToStr( hRow, m - 1 )
-               next
-            endif
-         next         
+          
+            return aJson
+
+            
+         
+         ELSE 
+            ::aFields = Array( mysql_num_fields( oOrm:pLib, ::hMyRes ) )
+            
+            for n = 1 to Len( ::aFields )
+               hField = mysql_fetch_field( oOrm:pLib, ::hMyRes )
+               if hField != 0
+                  ::aFields[ n ] = Array( 4 )
+                  ::aFields[ n ][ 1 ] = PtrToStr( hField, 0 )
+                  do case
+                     case AScan( { 253, 254, 12 }, PtrToUI( hField, hb_SysMyTypePos() ) ) != 0
+                           ::aFields[ n ][ 2 ] = "C"
+      
+                     case AScan( { 1, 3, 4, 5, 8, 9, 246 }, PtrToUI( hField, hb_SysMyTypePos() ) ) != 0
+                           ::aFields[ n ][ 2 ] = "N"
+      
+                     case AScan( { 10 }, PtrToUI( hField, hb_SysMyTypePos() ) ) != 0
+                           ::aFields[ n ][ 2 ] = "D"
+      
+                     case AScan( { 250, 252 }, PtrToUI( hField, hb_SysMyTypePos() ) ) != 0
+                           ::aFields[ n ][ 2 ] = "M"
+                  endcase 
+               endif   
+            next   
+      
+            ::aRows = Array( mysql_num_rows( oOrm:pLib, ::hMyRes ), ::FCount() )
+      
+            for n = 1 to Len( ::aRows )
+               if ( hRow := mysql_fetch_row( oOrm:pLib, ::hMyRes ) ) != 0
+                  for m = 1 to ::FCount()
+                     ::aRows[ n, m ] = PtrToStr( hRow, m - 1 )
+                  next
+               endif
+            next         
+         ENDIF
    
       endif
    ELSE
